@@ -1,8 +1,6 @@
-# Please note, this is broken
 shelly_test:
   module: i1_shelly
   class: MQTT
-  topic: "shellies/shellyix3-ABCDEFGH0123456/input/0"
-  light: light.ceiling_lamp
+  topic: "shellies/shellyix3-E8DB84D291ED/input/0"
+  light: light.v1_hall_taklampa
   toggle: True
-

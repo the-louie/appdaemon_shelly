@@ -1,77 +1,206 @@
+"""
+Shelly MQTT Integration for AppDaemon
+
+This module provides integration between Shelly devices and Home Assistant
+through MQTT messages. It handles input events from Shelly devices and
+controls Home Assistant lights accordingly.
+
+Author: the_louie
+License: MIT
+"""
+
 import appdaemon.plugins.hass.hassapi as hass
 import time
 import json
+from typing import Optional, Dict, Any, Union
+import logging
+
 
 class MQTT(hass.Hass):
-    def initialize(self):
-        self.log('i1 Shelly MQTT loading...')
-        self.mqtt = self.get_plugin_api("MQTT")
-        self.mqtt.mqtt_subscribe('shellies/#')
+    """
+    AppDaemon app for integrating Shelly devices with Home Assistant via MQTT.
 
-        self.topic = self.args.get("topic")
-        self.light = self.args.get("light")
-        self.toggle = self.args.get("toggle", False)
-        self.last_event = int(0)
+    This class handles MQTT messages from Shelly input devices and controls
+    Home Assistant lights based on the input state changes.
 
-        if (self.topic is None or self.light is None):
-            self.log("i1 Missing configuration")
-            return
+    Configuration:
+        topic (str): MQTT topic to listen for (e.g., "shellies/device-id/input/0")
+        light (str): Home Assistant light entity to control
+        toggle (bool): If True, toggle light state; if False, direct on/off control
+    """
 
-        self.last_state = None #self.get_initial_state(self.light)
+    def initialize(self) -> None:
+        """
+        Initialize the MQTT integration.
+
+        Sets up MQTT subscription, validates configuration, and registers
+        event listeners for MQTT messages.
+
+        Raises:
+            ValueError: If required configuration is missing
+        """
+        self.log('Shelly MQTT Integration: Initializing...', level="INFO")
+
+        # Initialize MQTT connection
+        try:
+            self.mqtt = self.get_plugin_api("MQTT")
+            self.mqtt.mqtt_subscribe('shellies/#')
+        except Exception as e:
+            self.log(f'Shelly MQTT Integration: Failed to initialize MQTT: {e}', level="ERROR")
+            raise
+
+        # Load configuration
+        self._load_configuration()
+
+        # Validate configuration
+        self._validate_configuration()
+
+        # Initialize state tracking
+        self.last_state: Optional[str] = None
+        self.last_event: int = 0
+
+        # Register event listener
+        self.mqtt.listen_event(self._handle_shelly_event, "MQTT_MESSAGE")
+
+        # Log initial light state
+        initial_state = self.get_state(self.light)
+        self.log(f'Shelly MQTT Integration: Initial light state for {self.light}: {initial_state}', level="DEBUG")
 
         if self.mqtt.is_client_connected():
-            self.log('i1 MQTT is connected')
+            self.log('Shelly MQTT Integration: MQTT client connected successfully', level="INFO")
+        else:
+            self.log('Shelly MQTT Integration: MQTT client not connected', level="WARNING")
 
-        self.mqtt.listen_event(self.shelly_event, "MQTT_MESSAGE")
+    def _load_configuration(self) -> None:
+        """Load and store configuration parameters."""
+        self.topic: Optional[str] = self.args.get("topic")
+        self.light: Optional[str] = self.args.get("light")
+        self.toggle: bool = self.args.get("toggle", False)
 
-        a = self.get_state(self.light)
-        #self.log('i1 DEBUG self.light ({}) state = "{}"'.format(self.light, a))
+    def _validate_configuration(self) -> None:
+        """
+        Validate that all required configuration parameters are present.
 
-    def shelly_event(self, event_name, data, kwargs):
-        if data is not None and not (data.get('topic','')).startswith(self.topic):
+        Raises:
+            ValueError: If required configuration is missing
+        """
+        if self.topic is None:
+            raise ValueError("Missing required configuration: 'topic'")
+        if self.light is None:
+            raise ValueError("Missing required configuration: 'light'")
+
+        self.log(f'Shelly MQTT Integration: Configuration validated - Topic: {self.topic}, Light: {self.light}, Toggle: {self.toggle}', level="DEBUG")
+
+    def _handle_shelly_event(self, event_name: str, data: Dict[str, Any], kwargs: Dict[str, Any]) -> None:
+        """
+        Handle incoming MQTT messages from Shelly devices.
+
+        Args:
+            event_name: The name of the event (should be "MQTT_MESSAGE")
+            data: Dictionary containing MQTT message data
+            kwargs: Additional keyword arguments
+        """
+        # Validate data structure
+        if data is None:
+            self.log('Shelly MQTT Integration: Received empty MQTT data', level="WARNING")
             return
+
+        # Check if this message is for our configured topic
+        topic = data.get('topic')
+        if topic is None:
+            # This is likely a connection status message, ignore it
+            self.log('Shelly MQTT Integration: Received MQTT message without topic (connection status)', level="DEBUG")
+            return
+
+        if not topic.startswith(self.topic):
+            # Not our topic, ignore it
+            return
+
+        # Extract payload
         new_state = data.get("payload")
-        #self.log('i1 DEBUG shelly_event(self, {}, {}, kwargs)'.format(event_name, data))
         if new_state is None:
-            self.log('i1 ERROR: {}'.format(data))
+            self.log(f'Shelly MQTT Integration: Invalid payload in MQTT message: {data}', level="ERROR")
             return
+
+        self.log(f'Shelly MQTT Integration: Received state change - Topic: {topic}, New State: {new_state}', level="DEBUG")
+
+        # Handle first message (initialize state)
         if self.last_state is None:
-            # if this is the first message assume that the button WASN't clicked but that it's just an update
-            # and set it as the current state.
-            #self.log('i1 DEBUG last_state = None => {}'.format(new_state))
+            self.log(f'Shelly MQTT Integration: Initializing state to: {new_state}', level="DEBUG")
             self.last_state = new_state
             return
+
+        # Check if state actually changed
         if new_state == self.last_state:
-            #self.log('i1 DEBUG {} == {} (no change)'.format(new_state, self.last_state))
+            self.log(f'Shelly MQTT Integration: No state change detected: {new_state}', level="DEBUG")
             return
 
-        #self.log('i1 DEBUG data={}'.format(json.dumps(data)));
-
+        # Update timestamp
         self.last_event = int(time.time())
 
-        if self.toggle and new_state != self.last_state:
-            self.toggle_light()
-            self.last_state = new_state
+        # Handle state change based on toggle mode
+        try:
+            if self.toggle:
+                self._handle_toggle_mode(new_state)
+            else:
+                self._handle_direct_mode(new_state)
+        except Exception as e:
+            self.log(f'Shelly MQTT Integration: Error handling state change: {e}', level="ERROR")
             return
 
-        if not self.toggle and new_state != self.last_state:
-            if new_state == 0:
+        # Update last state
+        self.last_state = new_state
+
+    def _handle_toggle_mode(self, new_state: str) -> None:
+        """
+        Handle state change in toggle mode.
+
+        Args:
+            new_state: The new state received from the Shelly device
+        """
+        self.log(f'Shelly MQTT Integration: Toggle mode - toggling light {self.light}', level="INFO")
+        self._toggle_light()
+
+    def _handle_direct_mode(self, new_state: str) -> None:
+        """
+        Handle state change in direct mode.
+
+        Args:
+            new_state: The new state received from the Shelly device
+        """
+        try:
+            state_value = int(new_state)
+            if state_value == 0:
+                self.log(f'Shelly MQTT Integration: Direct mode - turning off {self.light}', level="INFO")
                 self.turn_off(self.light)
             else:
+                self.log(f'Shelly MQTT Integration: Direct mode - turning on {self.light}', level="INFO")
                 self.turn_on(self.light)
-            self.last_state = new_state
-            return
+        except ValueError:
+            self.log(f'Shelly MQTT Integration: Invalid state value for direct mode: {new_state}', level="ERROR")
 
-        self.log("i1 CRITICAL: we got lost")
+    def _toggle_light(self) -> None:
+        """
+        Toggle the light state (on/off).
 
+        Handles the toggle operation by checking current state and switching
+        to the opposite state.
+        """
+        try:
+            current_state = self.get_state(self.light)
 
-    def toggle_light(self):
-        curr_state = self.get_state(self.light)
-        if curr_state == 'on':
-            self.turn_off(self.light)
-        elif curr_state == 'off':
-            self.turn_on(self.light)
-        else:
-            self.log("i1 unknown state '{}' for {}".format(curr_state, self.light))
+            if current_state == 'on':
+                self.log(f'Shelly MQTT Integration: Toggling {self.light} from ON to OFF', level="DEBUG")
+                self.turn_off(self.light)
+            elif current_state == 'off':
+                self.log(f'Shelly MQTT Integration: Toggling {self.light} from OFF to ON', level="DEBUG")
+                self.turn_on(self.light)
+            else:
+                self.log(f'Shelly MQTT Integration: Unknown light state "{current_state}" for {self.light}', level="WARNING")
+                # Default to turning on if state is unknown
+                self.turn_on(self.light)
+
+        except Exception as e:
+            self.log(f'Shelly MQTT Integration: Error toggling light {self.light}: {e}', level="ERROR")
 
 
