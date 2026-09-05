@@ -1,6 +1,20 @@
-shelly_test:
+# The app key IS the name everywhere: the AppDaemon admin console, the watchdog's
+# findings, the "Starting apps" list. This one used to be `shelly_test`, which
+# sounds like debris — and it is the hall ceiling light's wall switch, with tens
+# of thousands of callbacks behind it. A name that invites deletion on an app
+# that turns off a light people use is a hazard by itself; this estate has
+# already lost an app to a change that looked safe (Sprint 05 retro / T-60).
+#
+# Renaming the key in the LIVE config is an operator edit — config.yaml is
+# untracked, so no git operation performs it, and none can delete it either.
+# Expect the watchdog to report the old name once ("shelly_test was loaded at
+# the last check and is gone now"): that is S5-04 working, not a fault.
+hall_wall_switch:
   module: i1_shelly
   class: MQTT
+  # This is the hallen-tak Shelly i3 (E8DB84D291ED). Its HTTP half is dead in
+  # setup_retry, but the MQTT half works — see T-60's finding before assuming
+  # the hardware is inert.
   topic: "shellies/shellyix3-E8DB84D291ED/input/0"
   light: light.v1_hall_taklampa
   toggle: True
