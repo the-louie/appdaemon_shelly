@@ -3,7 +3,7 @@
 # sounds like debris — and it is the hall ceiling light's wall switch, with tens
 # of thousands of callbacks behind it. A name that invites deletion on an app
 # that turns off a light people use is a hazard by itself; this estate has
-# already lost an app to a change that looked safe (Sprint 05 retro / T-60).
+# already lost an app to a change that looked safe (Sprint 05 retro / T-60).  [historical: app retired 2026-09-07, T-63]
 #
 # Renaming the key in the LIVE config is an operator edit — config.yaml is
 # untracked, so no git operation performs it, and none can delete it either.

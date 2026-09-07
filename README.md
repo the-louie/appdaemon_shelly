@@ -1,4 +1,13 @@
-# AppDaemon Shelly Integration
+# AppDaemon Shelly Integration — RETIRED 2026-09-07
+
+**This app is retired (T-63).** Its trigger and its target are both gone: the
+Shelly i3 (`shellies/shellyix3-E8DB84D291ED`) was physically removed by the
+owner, and the hall light it toggled is now `light.v1_hallen_taklampa_lampa`,
+driven by a rotary dimmer that needs no app. The deployed directory was moved
+out of the AppDaemon apps tree (out entirely, not parked — every directory
+with .py files goes on AD's import path regardless of config). This repository
+is kept for history; do not redeploy it.
+
 
 A Python-based AppDaemon integration for connecting Shelly devices to Home Assistant via MQTT. This project provides seamless control of Home Assistant lights through Shelly input devices.
 
